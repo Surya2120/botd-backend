@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
+const helmet = require("helmet");
 require("dotenv").config();
 
 const app = express();
@@ -97,6 +98,28 @@ function parseAmount(value) {
 }
 
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+      baseUri: ["'none'"],
+      frameAncestors: ["'none'"],
+      formAction: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  hsts: CASHFREE_ENVIRONMENT === "production"
+    ? {
+        maxAge: 15552000,
+        includeSubDomains: true,
+        preload: false,
+      }
+    : false,
+  referrerPolicy: { policy: "no-referrer" },
+}));
 
 app.use(cors({
   origin(origin, callback) {
