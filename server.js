@@ -104,7 +104,7 @@ app.use(cors({
       return callback(null, true);
     }
 
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
@@ -115,6 +115,11 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: "256kb" }));
+
+app.get("/", (request, response) => {
+  response.type("text/plain").send("BOTD Backend Running");
+});
+
 app.get("/api/health", (request, response) => {
   response.json({
     success: true,
@@ -134,6 +139,7 @@ app.get("/api/cashfree/config", (request, response) => {
 
     return response.json({
       success: true,
+      environment: CASHFREE_ENVIRONMENT || "sandbox",
       appId: CASHFREE_APP_ID,
       mode: CASHFREE_ENVIRONMENT === "production" ? "production" : "sandbox",
       amount: parseAmount(CASHFREE_AMOUNT),
@@ -301,18 +307,29 @@ app.post("/api/cashfree/verify-order", async (request, response) => {
   }
 });
 
+app.use((request, response) => {
+  response.status(404).json({
+    success: false,
+    message: "API route not found.",
+  });
+});
+
 app.use((error, request, response, next) => {
   if (response.headersSent) {
     return next(error);
   }
 
   console.error("[BOTD] Server error", error);
-  return response.status(500).json({
+  const isCorsError = String(error?.message || "").includes("Origin is not allowed");
+
+  return response.status(isCorsError ? 403 : 500).json({
     success: false,
-    message: "Something went wrong. Please try again.",
+    message: isCorsError
+      ? "This website is not allowed to connect to BOTD payment server."
+      : "Something went wrong. Please try again.",
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`[BOTD] Server running on port ${PORT}`);
+  console.log("Server running on port " + PORT);
 });
