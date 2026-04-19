@@ -13,7 +13,7 @@ const {
   CASHFREE_SECRET_KEY = "",
   CASHFREE_ENVIRONMENT = "sandbox",
   CASHFREE_API_VERSION = "2023-08-01",
-  CASHFREE_AMOUNT = "99",
+  CASHFREE_AMOUNT = "1",
   CASHFREE_CURRENCY = "INR",
   CORS_ORIGIN = "",
 } = process.env;
@@ -93,8 +93,8 @@ async function callCashfree(endpoint, options = {}) {
 }
 
 function parseAmount(value) {
-  const amount = Number(value || CASHFREE_AMOUNT || 99);
-  return Number.isFinite(amount) ? amount : 99;
+  const amount = Number(value || CASHFREE_AMOUNT || 1);
+  return Number.isFinite(amount) ? amount : 1;
 }
 
 app.disable("x-powered-by");
