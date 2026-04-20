@@ -2,8 +2,6 @@ const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
-const helmet = require("helmet");
-const admin = require("firebase-admin");
 require("dotenv").config();
 
 const app = express();
@@ -14,12 +12,9 @@ const {
   CASHFREE_SECRET_KEY = "",
   CASHFREE_ENVIRONMENT = "sandbox",
   CASHFREE_API_VERSION = "2023-08-01",
-  CASHFREE_AMOUNT = "1",
+  CASHFREE_AMOUNT = "99",
   CASHFREE_CURRENCY = "INR",
   CORS_ORIGIN = "",
-  FIREBASE_PROJECT_ID = "botd-in",
-  FIREBASE_WEB_API_KEY = "",
-  FIREBASE_SERVICE_ACCOUNT_JSON = "",
 } = process.env;
 
 const CASHFREE_BASE_URL = CASHFREE_ENVIRONMENT === "production"
@@ -33,31 +28,6 @@ const allowedOrigins = CORS_ORIGIN
 
 const verifiedOrders = new Set();
 const verifyingOrders = new Set();
-let firebaseAdminDb = null;
-
-function initializeFirebaseAdmin() {
-  if (!isNonEmptyString(FIREBASE_SERVICE_ACCOUNT_JSON) || firebaseAdminDb) {
-    return firebaseAdminDb;
-  }
-
-  try {
-    const serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON);
-
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        projectId: serviceAccount.project_id || FIREBASE_PROJECT_ID,
-      });
-    }
-
-    firebaseAdminDb = admin.firestore();
-  } catch (error) {
-    console.error("[BOTD] Firebase Admin initialization failed", error);
-    firebaseAdminDb = null;
-  }
-
-  return firebaseAdminDb;
-}
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -121,133 +91,12 @@ async function callCashfree(endpoint, options = {}) {
   return payload;
 }
 
-function decodeFirestoreValue(value = {}) {
-  if (Object.prototype.hasOwnProperty.call(value, "stringValue")) return value.stringValue;
-  if (Object.prototype.hasOwnProperty.call(value, "integerValue")) return Number(value.integerValue);
-  if (Object.prototype.hasOwnProperty.call(value, "doubleValue")) return Number(value.doubleValue);
-  if (Object.prototype.hasOwnProperty.call(value, "booleanValue")) return Boolean(value.booleanValue);
-  if (Object.prototype.hasOwnProperty.call(value, "timestampValue")) return value.timestampValue;
-  if (Object.prototype.hasOwnProperty.call(value, "nullValue")) return null;
-
-  if (value.mapValue?.fields) {
-    return decodeFirestoreFields(value.mapValue.fields);
-  }
-
-  if (Array.isArray(value.arrayValue?.values)) {
-    return value.arrayValue.values.map(decodeFirestoreValue);
-  }
-
-  return "";
-}
-
-function decodeFirestoreFields(fields = {}) {
-  return Object.fromEntries(
-    Object.entries(fields).map(([key, value]) => [key, decodeFirestoreValue(value)])
-  );
-}
-
-function normalizeRegistrationId(value = "") {
-  return String(value || "").trim().toUpperCase();
-}
-
-async function fetchRegistrationFromFirestore(registrationId) {
-  const adminDb = initializeFirebaseAdmin();
-
-  if (adminDb) {
-    const snapshot = await adminDb
-      .collection("registrations")
-      .where("registrationId", "==", registrationId)
-      .limit(1)
-      .get();
-
-    if (snapshot.empty) {
-      return null;
-    }
-
-    const document = snapshot.docs[0];
-    return {
-      id: document.id,
-      ...document.data(),
-    };
-  }
-
-  if (!isNonEmptyString(FIREBASE_PROJECT_ID) || !isNonEmptyString(FIREBASE_WEB_API_KEY)) {
-    throw new Error("Firebase verification API is not configured.");
-  }
-
-  const endpoint = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(FIREBASE_PROJECT_ID)}/databases/(default)/documents:runQuery?key=${encodeURIComponent(FIREBASE_WEB_API_KEY)}`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      structuredQuery: {
-        from: [{ collectionId: "registrations" }],
-        where: {
-          fieldFilter: {
-            field: { fieldPath: "registrationId" },
-            op: "EQUAL",
-            value: { stringValue: registrationId },
-          },
-        },
-        limit: 1,
-      },
-    }),
-  });
-
-  const payload = await readJsonResponse(response);
-
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || "Unable to read registration verification data.");
-  }
-
-  const documentResult = Array.isArray(payload)
-    ? payload.find((item) => item.document)
-    : null;
-
-  if (!documentResult?.document?.fields) {
-    return null;
-  }
-
-  const documentPath = String(documentResult.document.name || "");
-  const documentId = documentPath.split("/").pop();
-
-  return {
-    id: documentId,
-    ...decodeFirestoreFields(documentResult.document.fields),
-  };
-}
-
 function parseAmount(value) {
-  const amount = Number(value || CASHFREE_AMOUNT || 1);
-  return Number.isFinite(amount) ? amount : 1;
+  const amount = Number(value || CASHFREE_AMOUNT || 99);
+  return Number.isFinite(amount) ? amount : 99;
 }
 
 app.disable("x-powered-by");
-app.set("trust proxy", 1);
-
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'none'"],
-      baseUri: ["'none'"],
-      frameAncestors: ["'none'"],
-      formAction: ["'none'"],
-    },
-  },
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  hsts: CASHFREE_ENVIRONMENT === "production"
-    ? {
-        maxAge: 15552000,
-        includeSubDomains: true,
-        preload: false,
-      }
-    : false,
-  referrerPolicy: { policy: "no-referrer" },
-}));
 
 app.use(cors({
   origin(origin, callback) {
@@ -455,48 +304,6 @@ app.post("/api/cashfree/verify-order", async (request, response) => {
     if (orderId) {
       verifyingOrders.delete(orderId);
     }
-  }
-});
-
-app.get("/api/verify/:regId", async (request, response) => {
-  try {
-    const registrationId = normalizeRegistrationId(request.params.regId);
-
-    if (!/^BOTD-S1-\d{4}$/.test(registrationId)) {
-      return response.status(400).json({
-        success: false,
-        message: "Invalid registration ID.",
-      });
-    }
-
-    const registration = await fetchRegistrationFromFirestore(registrationId);
-
-    if (!registration) {
-      return response.status(404).json({
-        success: false,
-        message: "Registration not found.",
-      });
-    }
-
-    const paymentStatus = String(registration.paymentStatus || registration.status || "").toUpperCase();
-
-    return response.json({
-      success: true,
-      registration: {
-        name: registration.name || "",
-        category: registration.category || "",
-        paymentStatus,
-        payment_status: paymentStatus,
-        registrationId,
-        status: registration.status || "",
-      },
-    });
-  } catch (error) {
-    console.error("[BOTD] Registration verification failed", error);
-    return response.status(500).json({
-      success: false,
-      message: "Unable to verify registration right now.",
-    });
   }
 });
 
