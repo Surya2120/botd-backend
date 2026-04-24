@@ -120,6 +120,9 @@ app.get("/", (request, response) => {
   response.type("text/plain").send("BOTD Backend Running");
 });
 
+// Public app APIs (non-payment). Additive routes only.
+app.use("/api", require("./routes/publicApi"));
+
 app.get("/api/health", (request, response) => {
   response.json({
     success: true,
